@@ -579,7 +579,7 @@
 								<Anchors>
 									<Anchor point="TOPLEFT">
 										<Offset>
-											<AbsDimension x="15" y="-120"/>
+											<AbsDimension x="15" y="-65"/>
 										</Offset>
 									</Anchor>
 								</Anchors>
@@ -688,6 +688,33 @@
 									<OnClick>
 										Outfitter_SetHideDisabledOutfits(this:GetChecked());
 									</OnClick>
+								</Scripts>
+							</CheckButton>
+							<CheckButton name="OutfitterShowOutfitsInTooltip" inherits="OptionsCheckButtonTemplate">
+								<Anchors>
+									<Anchor point="TOPLEFT" relativeTo="OutfitterHideDisabledOutfits" relativePoint="BOTTOMLEFT">
+										<Offset>
+											<AbsDimension x="0" y="-10"/>
+										</Offset>
+									</Anchor>
+								</Anchors>
+								<Scripts>
+									<OnLoad>
+										getglobal(this:GetName().."Text"):SetText(Outfitter_cShowOutfitsInTooltip);
+									</OnLoad>
+									<OnClick>
+										Outfitter_SetShowOutfitsInTooltip(this:GetChecked());
+									</OnClick>
+									<OnEnter>
+										if this:GetChecked() then
+											GameTooltip_AddNewbieTip(Outfitter_cShowOutfitsInTooltip, 1.0, 1.0, 1.0, Outfitter_cShowOutfitsInTooltipOnDescription, 1);
+										else
+											GameTooltip_AddNewbieTip(Outfitter_cShowOutfitsInTooltip, 1.0, 1.0, 1.0, Outfitter_cShowOutfitsInTooltipOffDescription, 1);
+										end
+									</OnEnter>
+									<OnLeave>
+										GameTooltip:Hide();
+									</OnLeave>
 								</Scripts>
 							</CheckButton>
 						</Frames>
@@ -1377,6 +1404,11 @@
 		</Scripts>
 	</Button>
 	<GameTooltip name="OutfitterTooltip" parent="UIParent" hidden="true" inherits="GameTooltipTemplate">
+		<Anchors>
+			<Anchor point="CENTER"/>
+		</Anchors>
+	</GameTooltip>
+	<GameTooltip name="OutfitterInfoTooltip" parent="UIParent" frameStrata="TOOLTIP" hidden="true" inherits="GameTooltipTemplate">
 		<Anchors>
 			<Anchor point="CENTER"/>
 		</Anchors>

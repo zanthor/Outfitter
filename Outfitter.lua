@@ -1487,6 +1487,12 @@ function Outfitter_SetHideDisabledOutfits(pHideDisabledOutfits)
 	Outfitter_Update(false);
 end
 
+function Outfitter_SetShowOutfitsInTooltip(pShowOutfitsInTooltip)
+	gOutfitter_Settings.Options.ShowOutfitsInTooltip = pShowOutfitsInTooltip;
+
+	Outfitter_Update(false);
+end
+
 function OutfitterMinimapDropDown_OnLoad(dropdown)
 	if ( not dropdown ) then
 		dropdown = this;
@@ -2139,6 +2145,9 @@ function Outfitter_Update(pUpdateSlotEnables)
 		OutfitterRememberVisibility:SetChecked(not gOutfitter_Settings.Options.DisableAutoVisibility);
 		OutfitterShowHotkeyMessages:SetChecked(not gOutfitter_Settings.Options.DisableHotkeyMessages);
 		OutfitterShowCurrentOutfit:SetChecked(gOutfitter_Settings.Options.ShowCurrentOutfit);
+		if OutfitterShowOutfitsInTooltip then
+			OutfitterShowOutfitsInTooltip:SetChecked(gOutfitter_Settings.Options.ShowOutfitsInTooltip);
+		end
 	end
 end
 
@@ -4425,6 +4434,11 @@ function Outfitter_Initialize()
 		gOutfitter_Settings.HideCloak = {};
 	end
 
+	-- Initialize tooltip option if not set
+	if gOutfitter_Settings.Options.ShowOutfitsInTooltip == nil then
+		gOutfitter_Settings.Options.ShowOutfitsInTooltip = false;
+	end
+
 	--
 
 	Outfitter_InitDebugging();
@@ -4479,6 +4493,9 @@ function Outfitter_Initialize()
 		currentOutfitFrame:Show();
 		Outfitter_UpdateCurrentOutfit();
 	end
+
+	-- Hook tooltips for outfit display
+	Outfitter_HookTooltips();
 end
 
 function Outfitter_InitializeOutfits()
@@ -6891,6 +6908,287 @@ function Outfitter_TestAmmoSlot()
 	Outfitter_DumpArray("vItemInfo", vItemInfo);
 end
 
+-- Tooltip outfit display functions
+local Outfitter_OriginalSetBagItem = nil;
+local Outfitter_OriginalSetInventoryItem = nil;
+local Outfitter_OriginalSetLootItem = nil;
+local Outfitter_OriginalSetMerchantItem = nil;
+local Outfitter_OriginalSetHyperlink = nil;
+
+function Outfitter_HookTooltips()
+	-- Hook the various tooltip Set methods
+	if not Outfitter_OriginalSetBagItem then
+		Outfitter_OriginalSetBagItem = GameTooltip.SetBagItem;
+		GameTooltip.SetBagItem = Outfitter_SetBagItem;
+	end
+	
+	if not Outfitter_OriginalSetInventoryItem then
+		Outfitter_OriginalSetInventoryItem = GameTooltip.SetInventoryItem;
+		GameTooltip.SetInventoryItem = Outfitter_SetInventoryItem;
+	end
+	
+	if not Outfitter_OriginalSetLootItem then
+		Outfitter_OriginalSetLootItem = GameTooltip.SetLootItem;
+		GameTooltip.SetLootItem = Outfitter_SetLootItem;
+	end
+	
+	if not Outfitter_OriginalSetMerchantItem then
+		Outfitter_OriginalSetMerchantItem = GameTooltip.SetMerchantItem;
+		GameTooltip.SetMerchantItem = Outfitter_SetMerchantItem;
+	end
+	
+	if not Outfitter_OriginalSetHyperlink then
+		Outfitter_OriginalSetHyperlink = GameTooltip.SetHyperlink;
+		GameTooltip.SetHyperlink = Outfitter_SetHyperlink;
+	end
+end
+
+function Outfitter_SetBagItem(tooltip, bag, slot)
+	local hasItem, hasCooldown, repairCost = Outfitter_OriginalSetBagItem(tooltip, bag, slot);
+	if hasItem or hasCooldown then
+		local link = GetContainerItemLink(bag, slot);
+		if link then
+			Outfitter_AddOutfitsToTooltip(tooltip, link);
+		end
+	end
+	return hasItem, hasCooldown, repairCost;
+end
+
+function Outfitter_SetInventoryItem(tooltip, unit, slot)
+	local hasItem, hasCooldown, repairCost = Outfitter_OriginalSetInventoryItem(tooltip, unit, slot);
+	if hasItem then
+		local link = GetInventoryItemLink(unit, slot);
+		if link then
+			Outfitter_AddOutfitsToTooltip(tooltip, link);
+		end
+	end
+	return hasItem, hasCooldown, repairCost;
+end
+
+function Outfitter_SetLootItem(tooltip, slot)
+	Outfitter_OriginalSetLootItem(tooltip, slot);
+	local link = GetLootSlotLink(slot);
+	if link then
+		Outfitter_AddOutfitsToTooltip(tooltip, link);
+	end
+end
+
+function Outfitter_SetMerchantItem(tooltip, slot)
+	Outfitter_OriginalSetMerchantItem(tooltip, slot);
+	local link = GetMerchantItemLink(slot);
+	if link then
+		Outfitter_AddOutfitsToTooltip(tooltip, link);
+	end
+end
+
+function Outfitter_SetHyperlink(tooltip, itemstring)
+	Outfitter_OriginalSetHyperlink(tooltip, itemstring);
+	local name, _, quality = GetItemInfo(itemstring);
+	if name then
+		local hex = select(4, GetItemQualityColor(quality));
+		local link = hex ..  '|H' .. itemstring .. '|h[' .. name .. ']|h|r';
+		Outfitter_AddOutfitsToTooltip(tooltip, link);
+	end
+end
+
+local Outfitter_TooltipLines = {}
+for i = 1, 40 do
+	Outfitter_TooltipLines[i] = {}
+end
+
+function Outfitter_CompressSetItems(tooltip)
+	if not tooltip then
+		return
+	end
+	
+	local name = tooltip:GetName()
+	if not name then
+		return
+	end
+	
+	local numLines = tooltip:NumLines()
+	if not numLines or numLines == 0 then
+		return
+	end
+	
+	-- Read all current tooltip lines
+	for i in pairs(Outfitter_TooltipLines) do
+		for j in pairs(Outfitter_TooltipLines[i]) do
+			Outfitter_TooltipLines[i][j] = nil
+		end
+	end
+	
+	for i = 1, numLines do
+		local left = _G[name .. "TextLeft" .. i]
+		if left and left.GetText and left.IsShown and left:IsShown() then
+			local leftText = left:GetText()
+			if leftText then
+				local right = _G[name .. "TextRight" .. i]
+				local rightText = right and right.IsShown and right:IsShown() and right:GetText()
+				local rL, gL, bL = left:GetTextColor()
+				local rR, gR, bR = 1, 1, 1
+				if right and right.GetTextColor then
+					rR, gR, bR = right:GetTextColor()
+				end
+				Outfitter_TooltipLines[i][1] = leftText
+				Outfitter_TooltipLines[i][2] = rightText
+				Outfitter_TooltipLines[i][3] = rL
+				Outfitter_TooltipLines[i][4] = gL
+				Outfitter_TooltipLines[i][5] = bL
+				Outfitter_TooltipLines[i][6] = rR
+				Outfitter_TooltipLines[i][7] = gR
+				Outfitter_TooltipLines[i][8] = bR
+			end
+		end
+	end
+	
+	if not Outfitter_TooltipLines[1] or not Outfitter_TooltipLines[1][1] then
+		return
+	end
+	
+	-- Rebuild tooltip with compressed set items
+	tooltip:ClearLines()
+	tooltip:SetText(Outfitter_TooltipLines[1][1], Outfitter_TooltipLines[1][3], Outfitter_TooltipLines[1][4], Outfitter_TooltipLines[1][5], 1, false)
+	
+	local inSetBlock = false
+	local setItems = {}
+	local i = 2
+	while i <= 40 do
+		if not Outfitter_TooltipLines[i] or not Outfitter_TooltipLines[i][1] then
+			break
+		end
+		
+		local line = Outfitter_TooltipLines[i][1]
+		
+		-- Detect set block start (indented lines that aren't set bonuses or item properties)
+		if string.find(line, "^%s+") and not string.find(line, "^Set:") and not string.find(line, "^%(%d%) Set:") and not inSetBlock then
+			local trimmed = string.gsub(line, "^%s+", "")
+			if not string.find(trimmed, ":") and not string.find(line, "Effect:") and not string.find(line, "Equip:") and not string.find(line, "Use:") and not string.find(line, "Chance on hit:") then
+				inSetBlock = true
+				setItems = {}
+			end
+		end
+		
+		if inSetBlock then
+			-- End of set block
+			if string.find(line, "^Set:") or string.find(line, "^%(%d%) Set:") or line == "" or not string.find(line, "^%s+") then
+				-- Output collected set items in two columns
+				for j = 1, table.getn(setItems), 2 do
+					local leftItem = setItems[j]
+					local rightItem = setItems[j + 1]
+					if leftItem and rightItem then
+						tooltip:AddDoubleLine(leftItem[1], rightItem[1], leftItem[3], leftItem[4], leftItem[5], rightItem[3], rightItem[4], rightItem[5])
+					elseif leftItem then
+						tooltip:AddLine(leftItem[1], leftItem[3], leftItem[4], leftItem[5])
+					end
+				end
+				inSetBlock = false
+				setItems = {}
+				-- Continue with current line
+				if Outfitter_TooltipLines[i][1] and Outfitter_TooltipLines[i][2] then
+					tooltip:AddDoubleLine(Outfitter_TooltipLines[i][1], Outfitter_TooltipLines[i][2], Outfitter_TooltipLines[i][3], Outfitter_TooltipLines[i][4], Outfitter_TooltipLines[i][5], Outfitter_TooltipLines[i][6], Outfitter_TooltipLines[i][7], Outfitter_TooltipLines[i][8])
+				elseif Outfitter_TooltipLines[i][1] then
+					tooltip:AddLine(Outfitter_TooltipLines[i][1], Outfitter_TooltipLines[i][3], Outfitter_TooltipLines[i][4], Outfitter_TooltipLines[i][5])
+				end
+			else
+				-- Collect set item
+				table.insert(setItems, {Outfitter_TooltipLines[i][1], Outfitter_TooltipLines[i][2], Outfitter_TooltipLines[i][3], Outfitter_TooltipLines[i][4], Outfitter_TooltipLines[i][5]})
+			end
+		else
+			if Outfitter_TooltipLines[i][1] and Outfitter_TooltipLines[i][2] then
+				tooltip:AddDoubleLine(Outfitter_TooltipLines[i][1], Outfitter_TooltipLines[i][2], Outfitter_TooltipLines[i][3], Outfitter_TooltipLines[i][4], Outfitter_TooltipLines[i][5], Outfitter_TooltipLines[i][6], Outfitter_TooltipLines[i][7], Outfitter_TooltipLines[i][8])
+			elseif Outfitter_TooltipLines[i][1] then
+				tooltip:AddLine(Outfitter_TooltipLines[i][1], Outfitter_TooltipLines[i][3], Outfitter_TooltipLines[i][4], Outfitter_TooltipLines[i][5])
+			end
+		end
+		i = i + 1
+	end
+end
+
+function Outfitter_AddOutfitsToTooltip(tooltip, itemLink)
+	-- Compress set items first to save space
+	Outfitter_CompressSetItems(tooltip);
+	
+	-- Only proceed if the option is enabled
+	if not gOutfitter_Settings or not gOutfitter_Settings.Options or not gOutfitter_Settings.Options.ShowOutfitsInTooltip then
+		return;
+	end
+
+	if not itemLink then
+		return;
+	end
+
+	-- Find outfits containing this item
+	local outfitsContainingItem = Outfitter_FindOutfitsContainingItem(itemLink);
+	if outfitsContainingItem and table.getn(outfitsContainingItem) > 0 then
+		-- Build outfit string
+		local outfitString = "Outfits: ";
+		for i, outfitName in outfitsContainingItem do
+			if i > 1 then
+				outfitString = outfitString .. ", ";
+			end
+			outfitString = outfitString .. outfitName;
+		end
+		
+		-- Add outfit information directly to tooltip
+		local numLines = tooltip:NumLines();
+		if numLines < 40 then
+			tooltip:AddLine(outfitString, 0.2, 0.75, 0.3, true);
+		else
+			-- Append to last line if tooltip is too long
+			local lastLine = _G[tooltip:GetName().."TextLeft"..numLines];
+			if lastLine then
+				lastLine:SetText(lastLine:GetText().."\n"..outfitString);
+			end
+		end
+		tooltip:Show();
+	end
+end
+
+function Outfitter_FindOutfitsContainingItem(pItemLink)
+	if not gOutfitter_Settings or not gOutfitter_Settings.Outfits then
+		return nil;
+	end
+
+	local outfitsFound = {};
+	local itemName = Outfitter_GetItemNameFromLink(pItemLink);
+	
+	if not itemName then
+		return nil;
+	end
+
+	-- Iterate through all outfit categories
+	for categoryID, outfits in gOutfitter_Settings.Outfits do
+		-- Iterate through all outfits in the category
+		for outfitIndex, outfit in outfits do
+			if outfit.Items then
+				-- Check all slots in the outfit
+				for slotName, outfitItem in outfit.Items do
+					if outfitItem and outfitItem.Name == itemName then
+						table.insert(outfitsFound, outfit.Name);
+						break; -- Found in this outfit, move to next outfit
+					end
+				end
+			end
+		end
+	end
+
+	if table.getn(outfitsFound) > 0 then
+		return outfitsFound;
+	end
+
+	return nil;
+end
+
+function Outfitter_GetItemNameFromLink(pItemLink)
+	if not pItemLink then
+		return nil;
+	end
+
+	local _, _, itemName = string.find(pItemLink, "%[(.+)%]");
+	return itemName;
+end
+
 function Outfitter_pfUISkin()
 	if IsAddOnLoaded( "pfUI" ) and pfUI and pfUI.api and pfUI.env and pfUI.env.C then
 		pfUI:RegisterSkin( "Outfitter", "vanilla", function()
@@ -6971,7 +7269,7 @@ function Outfitter_pfUISkin()
 			end
 
 			OutfitterShowMinimapButton:SetPoint( "TOPLEFT", 15, -90 )
-			for _, v in { "ShowMinimapButton", "RememberVisibility", "ShowHotkeyMessages", "ShowCurrentOutfit", "HideDisabledOutfits" } do
+			for _, v in { "ShowMinimapButton", "RememberVisibility", "ShowHotkeyMessages", "ShowCurrentOutfit", "HideDisabledOutfits", "ShowOutfitsInTooltip" } do
 				local cb = getglobal( "Outfitter" .. v )
 				skin_checkbox( cb )
 			end
