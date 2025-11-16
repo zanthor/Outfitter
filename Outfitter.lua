@@ -6985,7 +6985,7 @@ function Outfitter_SetHyperlink(tooltip, itemstring)
 	Outfitter_OriginalSetHyperlink(tooltip, itemstring);
 	local name, _, quality = GetItemInfo(itemstring);
 	if name then
-		local hex = select(4, GetItemQualityColor(quality));
+		local _, _, _, hex = GetItemQualityColor(quality);
 		local link = hex ..  '|H' .. itemstring .. '|h[' .. name .. ']|h|r';
 		Outfitter_AddOutfitsToTooltip(tooltip, link);
 	end
