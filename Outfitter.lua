@@ -7030,6 +7030,8 @@ function Outfitter_CompressSetItems(tooltip)
 				if right and right.GetTextColor then
 					rR, gR, bR = right:GetTextColor()
 				end
+				-- Detect if this line should wrap (Equip/Use/Chance on hit lines)
+				local shouldWrap = string.find(leftText, "^Equip:") or string.find(leftText, "^Use:") or string.find(leftText, "^Chance on hit:")
 				Outfitter_TooltipLines[i][1] = leftText
 				Outfitter_TooltipLines[i][2] = rightText
 				Outfitter_TooltipLines[i][3] = rL
@@ -7038,6 +7040,7 @@ function Outfitter_CompressSetItems(tooltip)
 				Outfitter_TooltipLines[i][6] = rR
 				Outfitter_TooltipLines[i][7] = gR
 				Outfitter_TooltipLines[i][8] = bR
+				Outfitter_TooltipLines[i][9] = shouldWrap
 			end
 		end
 	end
@@ -7088,7 +7091,7 @@ function Outfitter_CompressSetItems(tooltip)
 				if Outfitter_TooltipLines[i][1] and Outfitter_TooltipLines[i][2] then
 					tooltip:AddDoubleLine(Outfitter_TooltipLines[i][1], Outfitter_TooltipLines[i][2], Outfitter_TooltipLines[i][3], Outfitter_TooltipLines[i][4], Outfitter_TooltipLines[i][5], Outfitter_TooltipLines[i][6], Outfitter_TooltipLines[i][7], Outfitter_TooltipLines[i][8])
 				elseif Outfitter_TooltipLines[i][1] then
-					tooltip:AddLine(Outfitter_TooltipLines[i][1], Outfitter_TooltipLines[i][3], Outfitter_TooltipLines[i][4], Outfitter_TooltipLines[i][5])
+					tooltip:AddLine(Outfitter_TooltipLines[i][1], Outfitter_TooltipLines[i][3], Outfitter_TooltipLines[i][4], Outfitter_TooltipLines[i][5], Outfitter_TooltipLines[i][9])
 				end
 			else
 				-- Collect set item
@@ -7098,7 +7101,7 @@ function Outfitter_CompressSetItems(tooltip)
 			if Outfitter_TooltipLines[i][1] and Outfitter_TooltipLines[i][2] then
 				tooltip:AddDoubleLine(Outfitter_TooltipLines[i][1], Outfitter_TooltipLines[i][2], Outfitter_TooltipLines[i][3], Outfitter_TooltipLines[i][4], Outfitter_TooltipLines[i][5], Outfitter_TooltipLines[i][6], Outfitter_TooltipLines[i][7], Outfitter_TooltipLines[i][8])
 			elseif Outfitter_TooltipLines[i][1] then
-				tooltip:AddLine(Outfitter_TooltipLines[i][1], Outfitter_TooltipLines[i][3], Outfitter_TooltipLines[i][4], Outfitter_TooltipLines[i][5])
+				tooltip:AddLine(Outfitter_TooltipLines[i][1], Outfitter_TooltipLines[i][3], Outfitter_TooltipLines[i][4], Outfitter_TooltipLines[i][5], Outfitter_TooltipLines[i][9])
 			end
 		end
 		i = i + 1
@@ -7106,13 +7109,13 @@ function Outfitter_CompressSetItems(tooltip)
 end
 
 function Outfitter_AddOutfitsToTooltip(tooltip, itemLink)
-	-- Compress set items first to save space
-	Outfitter_CompressSetItems(tooltip);
-	
 	-- Only proceed if the option is enabled
 	if not gOutfitter_Settings or not gOutfitter_Settings.Options or not gOutfitter_Settings.Options.ShowOutfitsInTooltip then
 		return;
 	end
+	
+	-- Compress set items first to save space
+	Outfitter_CompressSetItems(tooltip);
 
 	if not itemLink then
 		return;
